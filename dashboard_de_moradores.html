@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Control de Moradores BDU</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse para parsear CSVs de Google Sheets -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        },
+                        danger: {
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                        },
+                        success: {
+                            500: '#10b981',
+                            600: '#059669',
+                        },
+                        warning: {
+                            500: '#f59e0b',
+                            600: '#d97706',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Personalización de barra de desplazamiento */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #0ea5e9;
+        }
+    </style>
+</head>
+<body class="h-full text-slate-100 font-sans antialiased bg-slate-950">
+
+    <div class="min-h-full flex flex-col">
+        <!-- HEADER -->
+        <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-md">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <!-- Logo / Título -->
+                    <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-primary-600 rounded-lg shadow-inner">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h1 class="text-lg font-bold tracking-tight text-white sm:text-xl">BDU Control de Moradores</h1>
+                            <p class="text-xs text-slate-400">Dashboard de Ocupación e Inventario en Tiempo Real</p>
+                        </div>
+                    </div>
+
+                    <!-- Estado y Controles de Sincronización -->
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <!-- Indicador de conexión / Fuente de datos -->
+                        <div id="connection-badge" class="hidden sm:flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                            <span id="connection-status-text">Conectado</span>
+                        </div>
+
+                        <!-- Temporizador de Auto-refresco -->
+                        <div class="text-right hidden md:block">
+                            <p class="text-[10px] text-slate-400 uppercase tracking-wider">Próximo refresco</p>
+                            <div class="flex items-center space-x-2">
+                                <span id="countdown-text" class="text-xs font-mono font-bold text-primary-400">01:00</span>
+                                <div class="w-16 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                    <div id="countdown-progress" class="bg-primary-500 h-1.5 transition-all duration-1000" style="width: 100%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Botón Sincronizar -->
+                        <button id="btn-sync" class="inline-flex items-center px-3 py-1.5 border border-slate-700 rounded-lg text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-primary-500 transition duration-150">
+                            <svg id="sync-icon" class="w-4 h-4 mr-1.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17" />
+                            </svg>
+                            <span class="hidden sm:inline">Sincronizar</span>
+                        </button>
+
+                        <!-- Botón Configuración (Abre Modal) -->
+                        <button id="btn-settings" class="p-1.5 border border-slate-700 rounded-lg text-slate-300 bg-slate-800 hover:bg-slate-700 focus:outline-none" title="Configurar Origen de Datos">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN CONTAINER -->
+        <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+            
+            <!-- ALERTA / ESTADO DE ACTUALIZACIÓN -->
+            <div id="status-banner" class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs sm:text-sm space-y-2 sm:space-y-0">
+                <div class="flex items-center space-x-2 text-slate-300">
+                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" id="status-indicator"></span>
+                    <span class="font-medium">Sincronización:</span>
+                    <span id="last-updated" class="font-mono text-slate-400">Cargando...</span>
+                </div>
+                <div class="flex items-center space-x-2 text-slate-400">
+                    <span>Origen Activo:</span>
+                    <span id="data-source-label" class="font-semibold text-primary-400 truncate max-w-[320px]">Detectando...</span>
+                </div>
+            </div>
+
+            <!-- MENSAJE DE ERROR / ADVERTENCIA -->
+            <div id="error-alert" class="hidden p-4 bg-red-950/40 border border-red-500/30 rounded-xl text-red-200">
+                <div class="flex flex-col space-y-3">
+                    <div class="flex space-x-3">
+                        <svg class="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div class="flex-grow">
+                            <h4 class="font-bold text-sm">Error de sincronización con Google Drive</h4>
+                            <p class="text-xs mt-1 text-red-300/90" id="error-message">
+                                El navegador bloqueó la solicitud de datos debido a políticas de CORS o falta de permisos públicos.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <!-- CONSOLA DE DIAGNÓSTICO -->
+                    <div class="bg-slate-950 p-3 rounded-lg border border-red-950 text-[11px] font-mono text-red-400 space-y-1">
+                        <p class="font-semibold text-red-300 uppercase border-b border-red-950 pb-1 mb-1">Registro de fallas en vivo:</p>
+                        <div><span class="text-slate-500">Origen intentado:</span> <span id="diag-url" class="break-all text-slate-300 font-bold">Ninguno</span></div>
+                        <div><span class="text-slate-500">Error técnico:</span> <span id="diag-error-desc" class="text-rose-300">Failed to fetch</span></div>
+                        <div class="pt-1.5 text-amber-400 border-t border-red-950/50 mt-1.5 leading-relaxed">
+                            <span class="font-bold text-rose-400">⚠️ CAUSA PROBABLE:</span> Tu archivo está en formato Excel (.xlsx) dentro de Drive. Para solucionarlo, abre tu planilla en Drive, ve a <strong>Archivo &gt; Guardar como hoja de cálculo de Google</strong>, y comparte ese nuevo archivo como "Lector Público".
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-3 pt-1">
+                        <button id="btn-fix-instructions" class="text-xs font-bold underline text-white hover:text-red-100">¿Cómo guardar como Hoja de Google?</button>
+                        <button id="btn-use-simulated" class="text-xs font-bold underline text-primary-400 hover:text-primary-300">Usar base de simulación local</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TARJETAS KPI (METRICAS CLAVE) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- KPI: TOTAL VIVIENDAS / OCUPACIÓN -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-slate-700 transition duration-150">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ocupación Total</p>
+                            <h3 class="text-2xl sm:text-3xl font-black text-white mt-1" id="kpi-occupancy-rate">0%</h3>
+                        </div>
+                        <div class="p-3 bg-primary-500/10 text-primary-400 rounded-lg">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span id="kpi-occupancy-text">0 de 0 Casas Ocupadas</span>
+                            <span id="kpi-occupancy-pct">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-2">
+                            <div id="kpi-occupancy-bar" class="bg-primary-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KPI: VIVIENDAS DISPONIBLES -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-slate-700 transition duration-150">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Disponibles / Vacías</p>
+                            <h3 class="text-2xl sm:text-3xl font-black text-emerald-400 mt-1" id="kpi-vacant">0</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span class="text-emerald-400 font-bold mr-1" id="kpi-vacant-pct">0%</span>
+                        <span>del parque total listo para habitar</span>
+                    </div>
+                </div>
+
+                <!-- KPI: PLAZOS VENCIDOS -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-slate-700 transition duration-150">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Entregas Vencidas</p>
+                            <h3 class="text-2xl sm:text-3xl font-black text-rose-500 mt-1" id="kpi-expired">0</h3>
+                        </div>
+                        <div class="p-3 bg-rose-500/10 text-rose-500 rounded-lg">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span class="text-rose-400 font-bold mr-1" id="kpi-expired-text">Alerta de entrega de vivienda</span>
+                        <span>vencida o venciendo hoy</span>
+                    </div>
+                </div>
+
+                <!-- KPI: PRÓXIMOS A VENCER -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-slate-700 transition duration-150">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Próximos a Vencer (90 d)</p>
+                            <h3 class="text-2xl sm:text-3xl font-black text-amber-500 mt-1" id="kpi-near-expired">0</h3>
+                        </div>
+                        <div class="p-3 bg-amber-500/10 text-amber-500 rounded-lg">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span>Requieren inicio de trámites de reasignación pronto</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- GRÁFICOS INTERACTIVOS -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- GRÁFICO 1: Ocupación General & Distribución Sector -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm lg:col-span-1">
+                    <h4 class="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center justify-between">
+                        <span>Distribución de Ocupación</span>
+                        <span class="text-xs font-normal text-slate-400">Sector Habitacional</span>
+                    </h4>
+                    <div class="relative h-64 flex items-center justify-center">
+                        <canvas id="chart-occupancy"></canvas>
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 gap-2 text-center text-xs">
+                        <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                            <span class="text-slate-400 block mb-0.5">Oficiales</span>
+                            <span class="font-bold text-white text-sm" id="chart-pct-oficiales">0</span>
+                        </div>
+                        <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                            <span class="text-slate-400 block mb-0.5">Suboficiales</span>
+                            <span class="font-bold text-white text-sm" id="chart-pct-suboficiales">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GRÁFICO 2: Estados de Contratos -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm lg:col-span-1">
+                    <h4 class="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center justify-between">
+                        <span>Estado de Contratos</span>
+                        <span class="text-xs font-normal text-slate-400">Días Vigentes vs Vencidos</span>
+                    </h4>
+                    <div class="relative h-64 flex items-center justify-center">
+                        <canvas id="chart-contracts"></canvas>
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 gap-2 text-center text-xs">
+                        <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                            <span class="text-rose-400 block mb-0.5">Vencidos</span>
+                            <span class="font-bold text-white text-sm" id="chart-val-vencidos">0</span>
+                        </div>
+                        <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                            <span class="text-emerald-400 block mb-0.5">Vigentes</span>
+                            <span class="font-bold text-white text-sm" id="chart-val-vigentes">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GRÁFICO 3: Distribución por Rangos/Grados -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm lg:col-span-1">
+                    <h4 class="text-sm font-bold text-white uppercase tracking-wider mb-4 border-b border-slate-800 pb-2 flex items-center justify-between">
+                        <span>Moradores por Grado</span>
+                        <span class="text-xs font-normal text-slate-400">Jerarquías Activas</span>
+                    </h4>
+                    <div class="relative h-64 flex items-center justify-center">
+                        <canvas id="chart-grades"></canvas>
+                    </div>
+                    <div class="mt-4 text-center text-[10px] text-slate-400">
+                        Muestra la cantidad total de viviendas asignadas clasificadas por rango militar
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- FILTROS Y TABLA COMPLETA -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-sm overflow-hidden">
+                
+                <!-- Barra de Herramientas / Filtros -->
+                <div class="p-5 border-b border-slate-800 bg-slate-900/50 space-y-4">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0">
+                        <div>
+                            <h3 class="text-base font-bold text-white">Lista de Viviendas y Moradores</h3>
+                            <p class="text-xs text-slate-400">Listado interactivo con búsqueda inteligente y filtros</p>
+                        </div>
+                        
+                        <!-- Acciones Rápidas -->
+                        <div class="flex items-center space-x-2">
+                            <button id="btn-export-csv" class="inline-flex items-center px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition">
+                                <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Exportar CSV
+                            </button>
+                            <button id="btn-print" class="inline-flex items-center px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition">
+                                <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                Imprimir Reporte
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Controles de Filtro -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <!-- Buscador -->
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </span>
+                            <input id="filter-search" type="text" placeholder="Buscar por nombre, DNI, casa..." class="block w-full pl-9 pr-3 py-1.5 border border-slate-700 rounded-lg bg-slate-950 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                        </div>
+
+                        <!-- Filtro: Sector -->
+                        <div>
+                            <select id="filter-sector" class="block w-full py-1.5 px-3 border border-slate-700 rounded-lg bg-slate-950 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                <option value="ALL">Sectores: Todos</option>
+                                <option value="Oficiales">Oficiales</option>
+                                <option value="Suboficiales">Suboficiales</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtro: Grado -->
+                        <div>
+                            <select id="filter-grade" class="block w-full py-1.5 px-3 border border-slate-700 rounded-lg bg-slate-950 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                <option value="ALL">Grados/Rangos: Todos</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtro: Estado Vivienda -->
+                        <div>
+                            <select id="filter-status" class="block w-full py-1.5 px-3 border border-slate-700 rounded-lg bg-slate-950 text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 text-sm">
+                                <option value="ALL">Estados de Vivienda: Todos</option>
+                                <option value="VIGENTE">Vigente (Contrato Activo)</option>
+                                <option value="VENCIDO">Vencido (Plazo Superado)</option>
+                                <option value="VACANTE">Disponible / Vacante</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla Responsive -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-800 text-left text-sm">
+                        <thead class="bg-slate-950 text-slate-300 font-semibold uppercase tracking-wider text-xs">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 text-center w-12">Casa</th>
+                                <th scope="col" class="px-4 py-3">Sector</th>
+                                <th scope="col" class="px-4 py-3">Habitaciones</th>
+                                <th scope="col" class="px-4 py-3">Morador</th>
+                                <th scope="col" class="px-4 py-3">Grado</th>
+                                <th scope="col" class="px-4 py-3">Unidad</th>
+                                <th scope="col" class="px-4 py-3">Contacto / DNI</th>
+                                <th scope="col" class="px-4 py-3">Fecha de Ingreso / Egreso</th>
+                                <th scope="col" class="px-4 py-3">Estado de Entrega / Plazos</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="divide-y divide-slate-800 bg-slate-900/40">
+                            <tr>
+                                <td colspan="9" class="px-6 py-10 text-center text-slate-500">
+                                    <svg class="animate-spin h-8 w-8 mx-auto text-primary-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Iniciando conexión con base de datos de Google Drive...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginación de Tabla -->
+                <div class="px-5 py-4 border-t border-slate-800 bg-slate-900/50 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 text-xs">
+                    <div class="text-slate-400">
+                        Mostrando <span id="pagination-start" class="font-bold text-white">0</span> a <span id="pagination-end" class="font-bold text-white">0</span> de <span id="pagination-total" class="font-bold text-white">0</span> propiedades
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label for="page-size" class="text-slate-400">Ver por página:</label>
+                        <select id="page-size" class="py-1 px-2 border border-slate-700 bg-slate-950 text-slate-300 rounded focus:outline-none">
+                            <option value="15">15</option>
+                            <option value="30">30</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <div class="inline-flex rounded-md shadow-sm ml-2">
+                            <button id="btn-prev-page" class="px-2.5 py-1.5 rounded-l-md border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                Anterior
+                            </button>
+                            <button id="btn-next-page" class="px-2.5 py-1.5 rounded-r-md border-t border-b border-r border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                Siguiente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- FOOTER -->
+        <footer class="bg-slate-950 border-t border-slate-800 py-6 mt-12 text-xs text-slate-500">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-2">
+                <p>Dashboard de Uso Interno - Base de Datos Unificada de Lista de Moradores</p>
+                <p class="text-slate-600">Sincronizado vía API pública segura de Google Sheets y Google Charts API.</p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- MODAL DE CONFIGURACIÓN -->
+    <div id="modal-settings" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Overlay de fondo -->
+            <div class="fixed inset-0 bg-slate-950/80 transition-opacity" aria-hidden="true" id="modal-settings-overlay"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <!-- Caja de Contenido -->
+            <div class="inline-block align-bottom bg-slate-900 border border-slate-800 rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="p-6 space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <h3 class="text-lg font-bold text-white flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            </svg>
+                            Configurar Conexión a Google Drive
+                        </h3>
+                        <button id="btn-close-settings" class="text-slate-400 hover:text-white">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="space-y-3">
+                        <p class="text-xs text-slate-400">Ingresa el enlace de Google Sheets (asegúrate de que esté guardado como Hoja de Google nativa, no .xlsx). El sistema autodetectará el tipo de URL.</p>
+                        
+                        <!-- Input: Pegar URL Completa de Google Sheets -->
+                        <div>
+                            <label for="setting-sheet-url" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Pegar Enlace Completo del Google Sheet</label>
+                            <input id="setting-sheet-url" type="text" class="block w-full px-3 py-2 border border-slate-700 bg-slate-950 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 font-mono text-xs" placeholder="https://docs.google.com/spreadsheets/d/...">
+                        </div>
+
+                        <div class="relative flex py-1 items-center">
+                            <div class="flex-grow border-t border-slate-800"></div>
+                            <span class="flex-shrink mx-3 text-[10px] text-slate-500 uppercase font-semibold">o especificar manualmente</span>
+                            <div class="flex-grow border-t border-slate-800"></div>
+                        </div>
+
+                        <!-- Input: ID de Hoja de Cálculo -->
+                        <div>
+                            <label for="setting-sheet-id" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">ID del Spreadsheet</label>
+                            <input id="setting-sheet-id" type="text" class="block w-full px-3 py-2 border border-slate-700 bg-slate-950 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 font-mono" placeholder="Ej: 1OrHq0_9Q248_U0wYf2sh7wzglmythMT3Fnq2EMB40sc">
+                        </div>
+
+                        <!-- Input: Nombre de la Hoja -->
+                        <div>
+                            <label for="setting-sheet-name" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nombre de la Pestaña / Hoja</label>
+                            <input id="setting-sheet-name" type="text" class="block w-full px-3 py-2 border border-slate-700 bg-slate-950 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500" placeholder="Ej: Lista de Moradores">
+                            <span class="text-[10px] text-slate-500 block mt-1">Nombre exacto de la pestaña a leer (por defecto 'Lista de Moradores').</span>
+                        </div>
+
+                        <!-- Selector: Frecuencia de Actualización -->
+                        <div>
+                            <label for="setting-refresh-rate" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Intervalo de Refresco Automático</label>
+                            <select id="setting-refresh-rate" class="block w-full px-3 py-2 border border-slate-700 bg-slate-950 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500">
+                                <option value="30">Cada 30 segundos</option>
+                                <option value="60">Cada 1 minuto</option>
+                                <option value="300">Cada 5 minutos</option>
+                                <option value="900">Cada 15 minutos</option>
+                                <option value="0">Desactivado (Solo manual)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-800 flex justify-end space-x-2">
+                        <button id="btn-reset-defaults" class="px-4 py-2 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 transition">
+                            Restaurar por Defecto
+                        </button>
+                        <button id="btn-save-settings" class="px-4 py-2 border border-transparent rounded-lg text-xs font-medium text-white bg-primary-600 hover:bg-primary-500 transition shadow-sm">
+                            Guardar y Sincronizar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE INSTRUCCIONES DE ACCESO PÚBLICO -->
+    <div id="modal-instructions" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 bg-slate-950/80 transition-opacity" aria-hidden="true" id="modal-instructions-overlay"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div class="inline-block align-bottom bg-slate-900 border border-slate-800 rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
+                <div class="p-6 space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <h3 class="text-lg font-bold text-white flex items-center text-primary-400">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            ¿Cómo pasar de Excel (.xlsx) a Google Sheets nativo?
+                        </h3>
+                        <button id="btn-close-instructions" class="text-slate-400 hover:text-white">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="text-xs text-slate-300 space-y-3 leading-relaxed">
+                        <p>Google Sheets bloquea las APIs externas si el archivo sigue guardado con formato de Microsoft Excel (.xlsx).</p>
+                        
+                        <div class="space-y-2 bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="font-bold text-white text-sm">Paso 1: Convertir en Sheets nativo</p>
+                            <ol class="list-decimal pl-4 space-y-1 text-slate-400">
+                                <li>Abre tu planilla de moradores en tu navegador de Google Drive.</li>
+                                <li>En el menú de arriba, haz clic en <strong>Archivo &gt; Guardar como hoja de cálculo de Google</strong>.</li>
+                                <li>Se abrirá una pestaña nueva con el archivo nativo de Sheets (notarás que ya no dice ".xlsx" verde al lado del título).</li>
+                            </ol>
+                        </div>
+
+                        <div class="space-y-2 bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="font-bold text-white text-sm">Paso 2: Compartir como Lector Público</p>
+                            <ol class="list-decimal pl-4 space-y-1 text-slate-400">
+                                <li>En la nueva hoja de cálculo, haz clic en el botón superior derecho de <strong class="text-white">"Compartir"</strong>.</li>
+                                <li>En <strong class="text-white">"Acceso General"</strong>, cámbialo a <strong class="text-white">"Cualquier persona con el enlace"</strong> (con permiso de <strong class="text-white">Lector</strong>).</li>
+                                <li>Copia el nuevo enlace de tu navegador y pégalo en la configuración de esta app.</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-800 flex justify-end">
+                        <button id="btn-dismiss-instructions" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-white transition">
+                            Entendido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT DE LOGICA GENERAL -->
+    <script>
+        // CONFIGURACIONES POR DEFECTO
+        const DEFAULTS = {
+            sheetId: '1OrHq0_9Q248_U0wYf2sh7wzglmythMT3Fnq2EMB40sc',
+            sheetName: 'Lista de Moradores',
+            refreshInterval: 60
+        };
+
+        // Estado interno de la aplicación
+        let appState = {
+            sheetId: localStorage.getItem('bdu_sheet_id') || DEFAULTS.sheetId,
+            sheetName: localStorage.getItem('bdu_sheet_name') || DEFAULTS.sheetName,
+            sheetUrl: localStorage.getItem('bdu_sheet_url') || '',
+            refreshInterval: parseInt(localStorage.getItem('bdu_refresh_interval') !== null ? localStorage.getItem('bdu_refresh_interval') : DEFAULTS.refreshInterval),
+            
+            rawData: [],       // Datos originales procesados
+            filteredData: [],  // Datos filtrados
+            
+            // Paginación
+            currentPage: 1,
+            pageSize: 15,
+            
+            // Temporizador
+            timeLeft: 0,
+            timerIntervalId: null,
+            
+            charts: {
+                occupancy: null,
+                contracts: null,
+                grades: null
+            },
+            
+            isSimulating: false
+        };
+
+        // MOCK DATA (Carga por defecto en caso de falla crítica extrema de conectividad)
+        const MOCK_DATASET = [
+            {"NRO":"1","SETOR":"Oficiales","CASA":"1","Habitaciones":"4G","GRADO":"TC","APELLIDO Y NOMBRE":"MERLO LUCAS","Unidad":"R 6","DNI":"26.976.902","Tel":"","Fecha de Ingreso":"15/12/2024","Fecha de Egreso":"15/12/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"926 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"2","SETOR":"","CASA":"2","Habitaciones":"4G","GRADO":"TC","APELLIDO Y NOMBRE":"POLICANTE ORLANDO","Unidad":"R 12","DNI":"26.527.882","Tel":"","Fecha de Ingreso":"10/12/2023","Fecha de Egreso":"10/12/2027","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"555 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"3","SETOR":"","CASA":"3","Habitaciones":"3G","GRADO":"CT","APELLIDO Y NOMBRE":"CARAFA MATIAS NAHUEL","Unidad":"R 6","DNI":"37.521.850","Tel":"3463410475","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"4","SETOR":"","CASA":"4","Habitaciones":"3G","GRADO":"MY","APELLIDO Y NOMBRE":"BARRIONUEVO GERARDO","Unidad":"R 6","DNI":"32.203.424","Tel":"2966569638","Fecha de Ingreso":"21/12/2024","Fecha de Egreso":"21/12/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"932 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"5","SETOR":"","CASA":"5","Habitaciones":"3G","GRADO":"MY","APELLIDO Y NOMBRE":"LEGUIZAMON FABRICIO","Unidad":"R 12","DNI":"33.695.235","Tel":"2942503300","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"6","SETOR":"","CASA":"6","Habitaciones":"3G","GRADO":"TP","APELLIDO Y NOMBRE":"GALVAN AARON NAHUEL","Unidad":"R 6","DNI":"35.347.382","Tel":"1144374822","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"7","SETOR":"","CASA":"7","Habitaciones":"3G - 1C","GRADO":"","APELLIDO Y NOMBRE":"","Unidad":"R 12","DNI":"","Tel":"","Fecha de Ingreso":"","Fecha de Egreso":"","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"","OBSERVACIONES":"Disponible"},
+            {"NRO":"8","SETOR":"","CASA":"8","Habitaciones":"3G","GRADO":"MY","APELLIDO Y NOMBRE":"WELSH FEDERICO","Unidad":"R 12","DNI":"29.250.074","Tel":"3517150829","Fecha de Ingreso":"21/12/2024","Fecha de Egreso":"21/12/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"932 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"9","SETOR":"","CASA":"9","Habitaciones":"3G","GRADO":"CT","APELLIDO Y NOMBRE":"DIGIOVANNI ESTEBAN","Unidad":"R 12","DNI":"35.562.714","Tel":"1139331793","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"10","SETOR":"","CASA":"10","Habitaciones":"3G","GRADO":"MY","APELLIDO Y NOMBRE":"GARBINO ZAMELA ENZO","Unidad":"R 6","DNI":"29.255.291","Tel":"1165229492","Fecha de Ingreso":"20/01/2022","Fecha de Egreso":"10/12/2026","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"190 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"11","SETOR":"","CASA":"12","Habitaciones":"2G - 1C","GRADO":"CT","APELLIDO Y NOMBRE":"VALLEJO JUAN","Unidad":"R 12","DNI":"35.765.033","Tel":"1150393361","Fecha de Ingreso":"12/12/2022","Fecha de Egreso":"04/01/2026","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"150 Dias Vencidos","OBSERVACIONES":"LE DIERON 1 AÑO DE PRÓRROGA"},
+            {"NRO":"12","SETOR":"","CASA":"13","Habitaciones":"2G - 1C","GRADO":"TT","APELLIDO Y NOMBRE":"CERULLO HUGO","Unidad":"R 6","DNI":"40.330.163","Tel":"1166736151","Fecha de Ingreso":"30/04/2025","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"13","SETOR":"","CASA":"14","Habitaciones":"2G - 1C","GRADO":"ST","APELLIDO Y NOMBRE":"BRANDAN GOMEZ GABRIEL","Unidad":"R 6","DNI":"43.884.985","Tel":"3525503511","Fecha de Ingreso":"02/06/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"14","SETOR":"","CASA":"15","Habitaciones":"2G","GRADO":"CT","APELLIDO Y NOMBRE":"MULLER MATIAS","Unidad":"R 6","DNI":"35.221.631","Tel":"1160520318","Fecha de Ingreso":"12/01/2023","Fecha de Egreso":"12/01/2027","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"223 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"15","SETOR":"","CASA":"16","Habitaciones":"2G","GRADO":"ST","APELLIDO Y NOMBRE":"BARROSO TOLABA ADRIAN","Unidad":"R 6","DNI":"39.537.812","Tel":"3875028376","Fecha de Ingreso":"16/06/2024","Fecha de Egreso":"16/06/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"744 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"16","SETOR":"","CASA":"17","Habitaciones":"2G","GRADO":"CT","APELLIDO Y NOMBRE":"CHAVEZ BURGOS WALTER","Unidad":"R 12","DNI":"36.127.697","Tel":"3884770449","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"17","SETOR":"","CASA":"18","Habitaciones":"2G","GRADO":"ST","APELLIDO Y NOMBRE":"SANTA CRUZ ORACIO","Unidad":"R 6","DNI":"43.482.960","Tel":"1168743283","Fecha de Ingreso":"02/06/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"18","SETOR":"","CASA":"19","Habitaciones":"2G","GRADO":"ST","APELLIDO Y NOMBRE":"CAMPOS EZEQUIEL","Unidad":"R 6","DNI":"39.933.876","Tel":"3512591281","Fecha de Ingreso":"10/01/2024","Fecha de Egreso":"10/01/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"586 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"1","SETOR":"Suboficiales","CASA":"1","Habitaciones":"2G - 1C","GRADO":"SG","APELLIDO Y NOMBRE":"AYALA CRISTIAN","Unidad":"R 12","DNI":"35.838.374","Tel":"3764625128","Fecha de Ingreso":"01/01/2026","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"2","SETOR":"","CASA":"2","Habitaciones":"3G","GRADO":"SI","APELLIDO Y NOMBRE":"RODRIGUEZ NESTOR","Unidad":"R 6","DNI":"34.120.301","Tel":"1122345598","Fecha de Ingreso":"15/03/2023","Fecha de Egreso":"15/03/2027","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"285 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"3","SETOR":"","CASA":"3","Habitaciones":"2G","GRADO":"CP","APELLIDO Y NOMBRE":"GOMEZ ROBERTO","Unidad":"R 12","DNI":"38.560.123","Tel":"3519823412","Fecha de Ingreso":"10/05/2024","Fecha de Egreso":"10/05/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"707 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"4","SETOR":"","CASA":"4","Habitaciones":"2G - 1C","GRADO":"CI","APELLIDO Y NOMBRE":"LOPEZ HORACIO","Unidad":"R 6","DNI":"36.940.551","Tel":"","Fecha de Ingreso":"01/01/2022","Fecha de Egreso":"31/12/2025","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"153 Dias Vencidos","OBSERVACIONES":"PENDIENTE DE MUDANZA"},
+            {"NRO":"5","SETOR":"","CASA":"5","Habitaciones":"3G","GRADO":"","APELLIDO Y NOMBRE":"","Unidad":"R 6","DNI":"","Tel":"","Fecha de Ingreso":"","Fecha de Egreso":"","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"","OBSERVACIONES":"Mantenimiento de techos"},
+            {"NRO":"6","SETOR":"","CASA":"6","Habitaciones":"3G","GRADO":"SG","APELLIDO Y NOMBRE":"SANCHEZ PEDRO","Unidad":"R 12","DNI":"31.455.670","Tel":"1160394821","Fecha de Ingreso":"12/12/2023","Fecha de Egreso":"12/12/2027","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"557 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"7","SETOR":"","CASA":"7","Habitaciones":"2G","GRADO":"CI","APELLIDO Y NOMBRE":"MARTINEZ DIEGO","Unidad":"R 12","DNI":"37.892.404","Tel":"3463991283","Fecha de Ingreso":"10/10/2025","Fecha de Egreso":"10/12/2029","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"1286 Dias Vigentes","OBSERVACIONES":""},
+            {"NRO":"8","SETOR":"","CASA":"8","Habitaciones":"2G","GRADO":"","APELLIDO Y NOMBRE":"","Unidad":"R 6","DNI":"","Tel":"","Fecha de Ingreso":"","Fecha de Egreso":"","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"","OBSERVACIONES":"Disponible"},
+            {"NRO":"9","SETOR":"","CASA":"9","Habitaciones":"3G","GRADO":"SG","APELLIDO Y NOMBRE":"FERNANDEZ EMILIO","Unidad":"R 6","DNI":"30.224.512","Tel":"2966459381","Fecha de Ingreso":"15/01/2024","Fecha de Egreso":"15/01/2028","DIAS VIGENTES Y VENCIDOS \nPARA LA ENTREGA DE LA VIVIENDA":"591 Dias Vigentes","OBSERVACIONES":""}
+        ];
+
+        window.onload = function() {
+            initEventListeners();
+            loadSettingsToInputs();
+            syncData();
+        };
+
+        function initEventListeners() {
+            document.getElementById('btn-sync').addEventListener('click', () => {
+                syncData();
+            });
+
+            document.getElementById('btn-settings').addEventListener('click', () => {
+                openModal('modal-settings');
+            });
+
+            document.getElementById('btn-close-settings').addEventListener('click', () => {
+                closeModal('modal-settings');
+            });
+            document.getElementById('modal-settings-overlay').addEventListener('click', () => {
+                closeModal('modal-settings');
+            });
+
+            document.getElementById('btn-reset-defaults').addEventListener('click', () => {
+                document.getElementById('setting-sheet-id').value = DEFAULTS.sheetId;
+                document.getElementById('setting-sheet-name').value = DEFAULTS.sheetName;
+                document.getElementById('setting-refresh-rate').value = DEFAULTS.refreshInterval;
+                document.getElementById('setting-sheet-url').value = '';
+            });
+
+            document.getElementById('btn-save-settings').addEventListener('click', () => {
+                const urlVal = document.getElementById('setting-sheet-url').value.trim();
+                if (urlVal) {
+                    appState.sheetUrl = urlVal;
+                    localStorage.setItem('bdu_sheet_url', urlVal);
+                    
+                    const config = extractConfigFromUrl(urlVal);
+                    if (config.sheetId) {
+                        appState.sheetId = config.sheetId;
+                        document.getElementById('setting-sheet-id').value = appState.sheetId;
+                    }
+                } else {
+                    appState.sheetUrl = '';
+                    localStorage.removeItem('bdu_sheet_url');
+                    appState.sheetId = document.getElementById('setting-sheet-id').value.trim() || DEFAULTS.sheetId;
+                }
+
+                appState.sheetName = document.getElementById('setting-sheet-name').value.trim() || DEFAULTS.sheetName;
+                appState.refreshInterval = parseInt(document.getElementById('setting-refresh-rate').value);
+
+                localStorage.setItem('bdu_sheet_id', appState.sheetId);
+                localStorage.setItem('bdu_sheet_name', appState.sheetName);
+                localStorage.setItem('bdu_refresh_interval', appState.refreshInterval);
+
+                closeModal('modal-settings');
+                syncData();
+            });
+
+            document.getElementById('setting-sheet-url').addEventListener('input', (e) => {
+                const val = e.target.value.trim();
+                const config = extractConfigFromUrl(val);
+                if (config.sheetId) {
+                    document.getElementById('setting-sheet-id').value = config.sheetId;
+                }
+            });
+
+            document.getElementById('filter-search').addEventListener('input', () => {
+                appState.currentPage = 1;
+                applyFilters();
+            });
+            document.getElementById('filter-sector').addEventListener('change', () => {
+                appState.currentPage = 1;
+                applyFilters();
+            });
+            document.getElementById('filter-grade').addEventListener('change', () => {
+                appState.currentPage = 1;
+                applyFilters();
+            });
+            document.getElementById('filter-status').addEventListener('change', () => {
+                appState.currentPage = 1;
+                applyFilters();
+            });
+
+            document.getElementById('page-size').addEventListener('change', (e) => {
+                appState.pageSize = parseInt(e.target.value);
+                appState.currentPage = 1;
+                renderTable();
+            });
+
+            document.getElementById('btn-prev-page').addEventListener('click', () => {
+                if (appState.currentPage > 1) {
+                    appState.currentPage--;
+                    renderTable();
+                }
+            });
+            document.getElementById('btn-next-page').addEventListener('click', () => {
+                const totalPages = Math.ceil(appState.filteredData.length / appState.pageSize);
+                if (appState.currentPage < totalPages) {
+                    appState.currentPage++;
+                    renderTable();
+                }
+            });
+
+            document.getElementById('btn-fix-instructions').addEventListener('click', () => {
+                openModal('modal-instructions');
+            });
+            document.getElementById('btn-close-instructions').addEventListener('click', () => {
+                closeModal('modal-instructions');
+            });
+            document.getElementById('modal-instructions-overlay').addEventListener('click', () => {
+                closeModal('modal-instructions');
+            });
+            document.getElementById('btn-dismiss-instructions').addEventListener('click', () => {
+                closeModal('modal-instructions');
+            });
+
+            document.getElementById('btn-use-simulated').addEventListener('click', () => {
+                appState.isSimulating = true;
+                processRawData(MOCK_DATASET);
+                document.getElementById('error-alert').classList.add('hidden');
+            });
+
+            document.getElementById('btn-export-csv').addEventListener('click', () => {
+                exportFilteredDataToCSV();
+            });
+
+            document.getElementById('btn-print').addEventListener('click', () => {
+                window.print();
+            });
+        }
+
+        function loadSettingsToInputs() {
+            document.getElementById('setting-sheet-url').value = appState.sheetUrl;
+            document.getElementById('setting-sheet-id').value = appState.sheetId;
+            document.getElementById('setting-sheet-name').value = appState.sheetName;
+            document.getElementById('setting-refresh-rate').value = appState.refreshInterval;
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        function resetAutoRefreshTimer() {
+            if (appState.timerIntervalId) {
+                clearInterval(appState.timerIntervalId);
+            }
+
+            if (appState.refreshInterval <= 0) {
+                document.getElementById('countdown-text').innerText = "PAUSADO";
+                document.getElementById('countdown-progress').style.width = "0%";
+                return;
+            }
+
+            appState.timeLeft = appState.refreshInterval;
+            updateTimerDisplay();
+
+            appState.timerIntervalId = setInterval(() => {
+                appState.timeLeft--;
+                updateTimerDisplay();
+
+                if (appState.timeLeft <= 0) {
+                    clearInterval(appState.timerIntervalId);
+                    syncData();
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(appState.timeLeft / 60);
+            const seconds = appState.timeLeft % 60;
+            const text = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            document.getElementById('countdown-text').innerText = text;
+
+            const percentage = (appState.timeLeft / appState.refreshInterval) * 100;
+            document.getElementById('countdown-progress').style.width = `${percentage}%`;
+        }
+
+        function extractConfigFromUrl(urlOrId) {
+            urlOrId = urlOrId.trim();
+            let sheetId = '';
+            let isPublished = false;
+            let directCsvUrl = '';
+
+            if (urlOrId.includes('docs.google.com/spreadsheets')) {
+                if (urlOrId.includes('/d/e/')) {
+                    isPublished = true;
+                    const matches = urlOrId.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+                    if (matches && matches[1]) {
+                        sheetId = matches[1];
+                        directCsvUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+                        const gidMatch = urlOrId.match(/gid=([0-9]+)/);
+                        if (gidMatch) directCsvUrl += `&gid=${gidMatch[1]}`;
+                    }
+                } else {
+                    const matches = urlOrId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                    if (matches && matches[1]) {
+                        sheetId = matches[1];
+                    }
+                }
+            } else {
+                sheetId = urlOrId;
+                if (sheetId.startsWith('2PACX-')) {
+                    isPublished = true;
+                    directCsvUrl = `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv`;
+                }
+            }
+
+            return { sheetId, isPublished, directCsvUrl };
+        }
+
+function syncData() {
+    showSyncLoading(true);
+    document.getElementById('error-alert').classList.add('hidden');
+
+    const sourceInput = appState.sheetUrl || appState.sheetId;
+    const config = extractConfigFromUrl(sourceInput);
+    const sheetId = config.sheetId || appState.sheetId;
+    const tabName = appState.sheetName;
+
+    document.getElementById('diag-url').innerText = sourceInput || 'ID: ' + sheetId;
+
+    if (config.isPublished) {
+        fetchPublishedCsv(config.directCsvUrl);
+        return;
+    }
+
+    const queryUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tabName)}`;
+
+    fetch(queryUrl)
+        .then(response => {
+            if (!response.ok) throw new Error(`Error en conexión con el servidor (${response.status})`);
+            return response.text();
+        })
+        .then(text => {
+            const startIdx = text.indexOf('{');
+            const endIdx = text.lastIndexOf('}') + 1;
+            if (startIdx === -1 || endIdx === -1) {
+                throw new Error("No se pudo descifrar la estructura del archivo");
+            }
+            const jsonStr = text.substring(startIdx, endIdx);
+            const json = JSON.parse(jsonStr);
+
+            if (json.status === 'error') {
+                throw new Error(json.errors[0].detailed_message || "La planilla devolvió un error de lectura.");
+            }
+
+            const table = json.table;
+            
+            // NORMALIZACIÓN: Forzamos que todos los encabezados se procesen en MINÚSCULAS y LIMPIOS
+            const cols = table.cols.map((c, idx) => {
+                return c.label ? c.label.trim().toLowerCase() : `col_${idx}`;
+            });
+            
+            let rows = table.rows.map(r => {
+                const rowObj = {};
+                r.c.forEach((cell, idx) => {
+                    const colLabel = cols[idx];
+                    const val = cell ? (cell.f !== undefined && cell.f !== null ? cell.f : (cell.v !== undefined && cell.v !== null ? cell.v : '')) : '';
+                    
+                    // Guardamos la propiedad en minúscula para que coincida con el renderizador del dashboard
+                    rowObj[colLabel] = val;
+                    rowObj[`_idx_${idx}`] = val;
+                });
+                return rowObj;
+            });
+
+            // Si la primera fila contiene duplicados de encabezados por accidente, los corregimos
+            const hasHeadersInCols = cols.some(c => c.includes('sector') || c.includes('casa'));
+            if (!hasHeadersInCols && rows.length > 0) {
+                const firstRow = rows[0];
+                const values = Object.values(firstRow);
+                const isFirstRowHeader = values.some(v => v && typeof v === 'string' && (v.toLowerCase().includes('sector') || v.toLowerCase().includes('casa')));
+                
+                if (isFirstRowHeader) {
+                    const newHeaders = Object.keys(firstRow).map(k => firstRow[k].toString().trim().toLowerCase());
+                    rows = rows.slice(1).map(r => {
+                        const rowObj = {};
+                        Object.keys(r).forEach((k, idx) => {
+                            const newKey = newHeaders[idx] || `col_${idx}`;
+                            rowObj[newKey] = r[k];
+                        });
+                        return rowObj;
+                    });
+                }
+            }
+
+            // Validamos que existan las columnas obligatorias en la información parseada
+            const finalKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+            const matchesFormat = finalKeys.some(k => k.includes('sector') || k.includes('casa') || k.includes('morador') || k.includes('apellido'));
+
+            if (rows.length > 0 && matchesFormat) {
+                appState.isSimulating = false;
+                setConnectionBadge(true, 'Conectado (Charts API)');
+                
+                // Mapeo seguro: Aseguramos que propiedades críticas existan exactamente como las requiere el HTML
+                const standardizedRows = rows.map(r => {
+                    return {
+                        ...r,
+                        casa: r.casa || r.CASA || r._idx_0 || '', // Mapeo de respaldo por posición si fallara el nombre
+                        sector: r.sector || r.SECTOR || '',
+                        morador: r.morador || r.nombre || ''
+                    };
+                });
+
+                processRawData(standardizedRows);
+            } else {
+                throw new Error("Formato de columnas no compatible (Falta columna 'Sector' o 'Casa').");
+            }
+        })
+        .catch(error => {
+            console.warn("Falla en Google Charts API. Intentando fallback...", error);
+            document.getElementById('diag-error-desc').innerText = error.message || error;
+            fetchFallbackCSV(sheetId, tabName);
+        });
+}
+
+        function fetchFallbackCSV(sheetId, tabName) {
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&id=${sheetId}&sheet=${encodeURIComponent(tabName)}`;
+            
+            fetch(csvUrl)
+                .then(response => {
+                    if (!response.ok) throw new Error(`El exportador de Google devolvió error ${response.status}`);
+                    return response.text();
+                })
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: 'greedy',
+                        complete: function(results) {
+                            if (results.data && results.data.length > 0) {
+                                const headers = Object.keys(results.data[0]);
+                                const hasFormat = headers.some(h => h.toLowerCase().includes('setor') || h.toLowerCase().includes('casa'));
+                                
+                                if (hasFormat) {
+                                    appState.isSimulating = false;
+                                    setConnectionBadge(true, 'Conectado (CSV Export)');
+                                    processRawData(results.data);
+                                } else {
+                                    throw new Error("La planilla no contiene las cabeceras requeridas.");
+                                }
+                            } else {
+                                throw new Error("La planilla de Drive está vacía.");
+                            }
+                        },
+                        error: function() {
+                            throw new Error("No se pudo estructurar el archivo.");
+                        }
+                    });
+                })
+                .catch(err => {
+                    console.error("Fallo general de sincronización en vivo.", err);
+                    document.getElementById('diag-error-desc').innerText = err.message || "Failed to fetch";
+                    triggerSimulationMode();
+                });
+        }
+
+        function fetchPublishedCsv(directUrl) {
+            Papa.parse(directUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: 'greedy',
+                complete: function(results) {
+                    if (results.data && results.data.length > 0) {
+                        appState.isSimulating = false;
+                        setConnectionBadge(true, 'Sincronizado (Web Publish)');
+                        processRawData(results.data);
+                    } else {
+                        triggerSimulationMode();
+                    }
+                },
+                error: function(err) {
+                    console.error("Fallo en descarga pública.", err);
+                    document.getElementById('diag-error-desc').innerText = "PapaParse: " + (err.message || err);
+                    triggerSimulationMode();
+                }
+            });
+        }
+
+        function triggerSimulationMode() {
+            appState.isSimulating = true;
+            document.getElementById('error-alert').classList.remove('hidden');
+            setConnectionBadge(false, 'Base Local de Simulación');
+            processRawData(MOCK_DATASET);
+            showSyncLoading(false);
+            resetAutoRefreshTimer();
+        }
+
+        function setConnectionBadge(isOnline, label) {
+            const badge = document.getElementById('connection-badge');
+            const text = document.getElementById('connection-status-text');
+            badge.classList.remove('hidden');
+
+            if (isOnline) {
+                text.innerText = label;
+                badge.className = 'flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            } else {
+                text.innerText = label;
+                badge.className = 'flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            }
+        }
+
+        function showSyncLoading(isLoading) {
+            const btn = document.getElementById('btn-sync');
+            const icon = document.getElementById('sync-icon');
+
+            if (isLoading) {
+                btn.disabled = true;
+                icon.classList.add('animate-spin');
+                document.getElementById('status-indicator').className = 'inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse';
+            } else {
+                btn.disabled = false;
+                icon.classList.remove('animate-spin');
+                document.getElementById('status-indicator').className = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500';
+                
+                const now = new Date();
+                document.getElementById('last-updated').innerText = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+                document.getElementById('data-source-label').innerText = appState.isSimulating ? 'BDU Moradores (Simulación)' : appState.sheetName;
+            }
+        }
+
+        // PROCESADO INTELIGENTE DE FILAS - CON PROPAGACIÓN DE SECTOR (SOLUCIONA CELDAS COMBINADAS Y FILTRADO)
+        function processRawData(data) {
+            let lastSeenSector = 'Oficiales'; // Arrancamos con un valor de respaldo por defecto
+
+            // Buscamos las claves correctas analizando la primera fila
+            const sampleRow = data[0] || {};
+            const sectorKey = findKey(sampleRow, ['setor', 'sector']);
+            const casaKey = findKey(sampleRow, ['casa', 'vivienda']);
+            const habKey = findKey(sampleRow, ['habitaciones', 'hab', 'dormitorios']);
+            const gradoKey = findKey(sampleRow, ['grado', 'rango']);
+            const nombreKey = findKey(sampleRow, ['apellido y nombre', 'morador', 'nombre', 'apellido']);
+            const unidadKey = findKey(sampleRow, ['unidad', 'destino']);
+            const dniKey = findKey(sampleRow, ['dni', 'documento']);
+            const telKey = findKey(sampleRow, ['tel', 'telefono', 'contacto']);
+            const ingKey = findKey(sampleRow, ['fecha de ingreso', 'ingreso']);
+            const egrKey = findKey(sampleRow, ['fecha de egreso', 'egreso']);
+            const nroKey = findKey(sampleRow, ['nro', 'id']);
+            const obsKey = findKey(sampleRow, ['observaciones', 'obs']);
+            let contractCol = findKey(sampleRow, ['dias vigentes', 'días vigentes', 'entrega', 'tiempo restante', 'vigentes y vencidos', 'dias vigentes y vencidos']);
+
+            const processed = [];
+
+            data.forEach(row => {
+                // Algoritmo de propagación: Si la celda de sector está llena, actualizamos la categoría actual
+                if (sectorKey && row[sectorKey] && row[sectorKey].toString().trim() !== '') {
+                    const currentSectorVal = row[sectorKey].toString().trim();
+                    
+                    // Identificar el sector sin importar mayúsculas, minúsculas o errores
+                    if (currentSectorVal.toLowerCase().includes('suboficial')) {
+                        lastSeenSector = 'Suboficiales';
+                    } else if (currentSectorVal.toLowerCase().includes('oficial')) {
+                        lastSeenSector = 'Oficiales';
+                    }
+                }
+
+                // Validamos que exista un identificador o número de casa
+                const tieneCasa = casaKey && row[casaKey] && row[casaKey].toString().trim() !== '';
+                if (!tieneCasa) return; // Si no tiene casa, ignoramos la fila (evita procesar filas vacías al final de la planilla)
+
+                const rawContractStatus = contractCol ? (row[contractCol] || '').toString().trim() : '';
+                let status = 'VACANTE';
+                const nombre = nombreKey ? (row[nombreKey] || '').toString().trim() : '';
+                
+                if (nombre !== '') {
+                    if (rawContractStatus.toLowerCase().includes('vencido')) {
+                        status = 'VENCIDO';
+                    } else {
+                        status = 'VIGENTE';
+                    }
+                }
+
+                processed.push({
+                    nro: nroKey ? (row[nroKey] || '') : '',
+                    sector: lastSeenSector, // Guardamos el sector actual propagado
+                    casa: row[casaKey].toString().trim(),
+                    habitaciones: habKey ? (row[habKey] || '') : '',
+                    grado: gradoKey ? (row[gradoKey] || '').toString().trim() : '',
+                    nombre: nombre,
+                    unidad: unidadKey ? (row[unidadKey] || '') : '',
+                    dni: dniKey ? (row[dniKey] || '') : '',
+                    tel: telKey ? (row[telKey] || '') : '',
+                    ingreso: ingKey ? (row[ingKey] || '') : '',
+                    egreso: egrKey ? (row[egrKey] || '') : '',
+                    tiempoRestante: rawContractStatus,
+                    observaciones: obsKey ? (row[obsKey] || '') : '',
+                    calculatedStatus: status
+                });
+            });
+
+            appState.rawData = processed;
+            populateGradeDropdown();
+            applyFilters();
+            showSyncLoading(false);
+        }
+
+        function findKey(obj, synonyms) {
+            if (!obj) return null;
+            const keys = Object.keys(obj);
+            for (let s of synonyms) {
+                const match = keys.find(k => k.toLowerCase().replace(/[\n\r]/g, ' ').trim() === s.toLowerCase());
+                if (match) return match;
+            }
+            for (let s of synonyms) {
+                const match = keys.find(k => k.toLowerCase().includes(s.toLowerCase()));
+                if (match) return match;
+            }
+            return null;
+        }
+
+        function populateGradeDropdown() {
+            const dropdown = document.getElementById('filter-grade');
+            const actualValue = dropdown.value;
+
+            const grados = [...new Set(appState.rawData
+                .map(r => r.grado)
+                .filter(g => g && g !== '')
+            )].sort();
+
+            dropdown.innerHTML = '<option value="ALL">Grados/Rangos: Todos</option>';
+            grados.forEach(grado => {
+                const opt = document.createElement('option');
+                opt.value = grado;
+                opt.innerText = grado;
+                dropdown.appendChild(opt);
+            });
+
+            if (grados.includes(actualValue)) {
+                dropdown.value = actualValue;
+            }
+        }
+
+        function applyFilters() {
+            const searchVal = document.getElementById('filter-search').value.toLowerCase().trim();
+            const sectorVal = document.getElementById('filter-sector').value;
+            const gradeVal = document.getElementById('filter-grade').value;
+            const statusVal = document.getElementById('filter-status').value;
+
+            appState.filteredData = appState.rawData.filter(row => {
+                const matchesSearch = searchVal === '' || 
+                    row.nombre.toLowerCase().includes(searchVal) ||
+                    row.dni.toLowerCase().includes(searchVal) ||
+                    row.casa.toString().toLowerCase().includes(searchVal) ||
+                    row.grado.toLowerCase().includes(searchVal) ||
+                    row.unidad.toLowerCase().includes(searchVal) ||
+                    row.observaciones.toLowerCase().includes(searchVal);
+
+                const matchesSector = sectorVal === 'ALL' || row.sector.toLowerCase() === sectorVal.toLowerCase();
+                const matchesGrade = gradeVal === 'ALL' || row.grado === gradeVal;
+                const matchesStatus = statusVal === 'ALL' || row.calculatedStatus === statusVal;
+
+                return matchesSearch && matchesSector && matchesGrade && matchesStatus;
+            });
+
+            calculateGlobalsAndKPIs();
+            renderCharts();
+            renderTable();
+        }
+
+        function calculateGlobalsAndKPIs() {
+            const totalCasas = appState.rawData.length;
+            const ocupadas = appState.rawData.filter(r => r.nombre !== '').length;
+            const libres = totalCasas - ocupadas;
+            const vencidos = appState.rawData.filter(r => r.calculatedStatus === 'VENCIDO').length;
+
+            let proximosAVencer = 0;
+            appState.rawData.forEach(r => {
+                if (r.calculatedStatus === 'VIGENTE' && r.tiempoRestante) {
+                    const match = r.tiempoRestante.match(/(\d+)\s*Dias/i);
+                    if (match) {
+                        const dias = parseInt(match[1]);
+                        if (dias <= 90) {
+                            proximosAVencer++;
+                        }
+                    }
+                }
+            });
+
+            const pctOcupacion = totalCasas > 0 ? Math.round((ocupadas / totalCasas) * 100) : 0;
+            const pctLibres = totalCasas > 0 ? Math.round((libres / totalCasas) * 100) : 0;
+
+            document.getElementById('kpi-occupancy-rate').innerText = `${pctOcupacion}%`;
+            document.getElementById('kpi-occupancy-text').innerText = `${ocupadas} de ${totalCasas} Casas Ocupadas`;
+            document.getElementById('kpi-occupancy-pct').innerText = `${pctOcupacion}%`;
+            document.getElementById('kpi-occupancy-bar').style.width = `${pctOcupacion}%`;
+
+            document.getElementById('kpi-vacant').innerText = libres;
+            document.getElementById('kpi-vacant-pct').innerText = `${pctLibres}%`;
+
+            document.getElementById('kpi-expired').innerText = vencidos;
+            if (vencidos > 0) {
+                document.getElementById('kpi-expired').className = "text-2xl sm:text-3xl font-black text-rose-500 mt-1 animate-pulse";
+            } else {
+                document.getElementById('kpi-expired').className = "text-2xl sm:text-3xl font-black text-slate-300 mt-1";
+            }
+
+            document.getElementById('kpi-near-expired').innerText = proximosAVencer;
+        }
+
+        function renderCharts() {
+            if (appState.charts.occupancy) appState.charts.occupancy.destroy();
+            if (appState.charts.contracts) appState.charts.contracts.destroy();
+            if (appState.charts.grades) appState.charts.grades.destroy();
+
+            const oficOcupados = appState.rawData.filter(r => r.sector.toLowerCase() === 'oficiales' && r.nombre !== '').length;
+            const subofOcupados = appState.rawData.filter(r => r.sector.toLowerCase() === 'suboficiales' && r.nombre !== '').length;
+            const vaciasTotales = appState.rawData.filter(r => r.nombre === '').length;
+
+            document.getElementById('chart-pct-oficiales').innerText = oficOcupados;
+            document.getElementById('chart-pct-suboficiales').innerText = subofOcupados;
+
+            const ctxOccupancy = document.getElementById('chart-occupancy').getContext('2d');
+            appState.charts.occupancy = new Chart(ctxOccupancy, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Oficiales Ocupados', 'Suboficiales Ocupados', 'Viviendas Libres'],
+                    datasets: [{
+                        data: [oficOcupados, subofOcupados, vaciasTotales],
+                        backgroundColor: ['#0ea5e9', '#0369a1', '#1e293b'],
+                        borderColor: '#0f172a',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#94a3b8', boxWidth: 12, font: { size: 10 } }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+
+            const vigentes = appState.rawData.filter(r => r.calculatedStatus === 'VIGENTE').length;
+            const vencidos = appState.rawData.filter(r => r.calculatedStatus === 'VENCIDO').length;
+
+            document.getElementById('chart-val-vencidos').innerText = vencidos;
+            document.getElementById('chart-val-vigentes').innerText = vigentes;
+
+            const ctxContracts = document.getElementById('chart-contracts').getContext('2d');
+            appState.charts.contracts = new Chart(ctxContracts, {
+                type: 'pie',
+                data: {
+                    labels: ['Contratos Vigentes', 'Plazos Vencidos'],
+                    datasets: [{
+                        data: [vigentes, vencidos],
+                        backgroundColor: ['#10b981', '#ef4444'],
+                        borderColor: '#0f172a',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#94a3b8', boxWidth: 12, font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            const rangoContadores = {};
+            appState.rawData.forEach(r => {
+                if (r.grado && r.grado !== '') {
+                    rangoContadores[r.grado] = (rangoContadores[r.grado] || 0) + 1;
+                }
+            });
+
+            const labelsGrados = Object.keys(rangoContadores);
+            const dataGrados = Object.values(rangoContadores);
+
+            const ctxGrades = document.getElementById('chart-grades').getContext('2d');
+            appState.charts.grades = new Chart(ctxGrades, {
+                type: 'bar',
+                data: {
+                    labels: labelsGrados,
+                    datasets: [{
+                        label: 'Viviendas Asignadas',
+                        data: dataGrados,
+                        backgroundColor: 'rgba(14, 165, 233, 0.4)',
+                        borderColor: '#0ea5e9',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { size: 9 } }
+                        },
+                        y: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8', stepSize: 1, font: { size: 9 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+
+            const totalRecords = appState.filteredData.length;
+            document.getElementById('pagination-total').innerText = totalRecords;
+
+            if (totalRecords === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="px-6 py-12 text-center text-slate-500 bg-slate-900/10">
+                            <svg class="h-10 w-10 text-slate-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Ningún morador o casa coincide con los filtros especificados.
+                        </td>
+                    </tr>
+                `;
+                document.getElementById('pagination-start').innerText = 0;
+                document.getElementById('pagination-end').innerText = 0;
+                document.getElementById('btn-prev-page').disabled = true;
+                document.getElementById('btn-next-page').disabled = true;
+                return;
+            }
+
+            const totalPages = Math.ceil(totalRecords / appState.pageSize);
+            if (appState.currentPage > totalPages) appState.currentPage = totalPages;
+            if (appState.currentPage < 1) appState.currentPage = 1;
+
+            const startIndex = (appState.currentPage - 1) * appState.pageSize;
+            const endIndex = Math.min(startIndex + appState.pageSize, totalRecords);
+
+            document.getElementById('pagination-start').innerText = startIndex + 1;
+            document.getElementById('pagination-end').innerText = endIndex;
+
+            document.getElementById('btn-prev-page').disabled = appState.currentPage === 1;
+            document.getElementById('btn-next-page').disabled = appState.currentPage === totalPages;
+
+            const pageData = appState.filteredData.slice(startIndex, endIndex);
+
+            pageData.forEach(row => {
+                const tr = document.createElement('tr');
+                
+                let rowBgClass = "hover:bg-slate-800/40 transition duration-100";
+                if (row.calculatedStatus === 'VENCIDO') {
+                    rowBgClass = "bg-rose-500/10 hover:bg-rose-500/15 text-rose-100 transition duration-100";
+                } else if (row.calculatedStatus === 'VACANTE') {
+                    rowBgClass = "opacity-75 hover:opacity-100 bg-slate-950/20 hover:bg-slate-800/20 text-slate-400 transition duration-100";
+                }
+
+                tr.className = rowBgClass;
+
+                const sectorBadge = row.sector.toLowerCase().includes('oficiales')
+                    ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-900/40 text-primary-300 border border-primary-500/20">Oficiales</span>'
+                    : '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-cyan-900/30 text-cyan-400 border border-cyan-500/10">Suboficiales</span>';
+
+                let statusBadge = '';
+                if (row.calculatedStatus === 'VACANTE') {
+                    statusBadge = '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">DISPONIBLE</span>';
+                } else if (row.calculatedStatus === 'VENCIDO') {
+                    statusBadge = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-500/20 animate-pulse">${row.tiempoRestante || 'PLAZO VENCIDO'}</span>`;
+                } else {
+                    let proximityClass = "bg-emerald-950 text-emerald-400 border border-emerald-500/20";
+                    const match = row.tiempoRestante.match(/(\d+)\s*Dias/i);
+                    if (match && parseInt(match[1]) <= 90) {
+                        proximityClass = "bg-amber-950 text-amber-400 border border-amber-500/20 animate-pulse";
+                    }
+                    statusBadge = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${proximityClass}">${row.tiempoRestante}</span>`;
+                }
+
+                const nombreDisplay = row.calculatedStatus === 'VACANTE'
+                    ? '<em class="text-slate-500 font-normal">Sin Asignar (Propiedad Libre)</em>'
+                    : `<span class="font-bold text-white">${row.nombre}</span>`;
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 text-center font-bold font-mono text-sm border-r border-slate-800">${row.casa}</td>
+                    <td class="px-4 py-3">${sectorBadge}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-400">${row.habitaciones || '-'}</td>
+                    <td class="px-4 py-3 max-w-[200px] truncate">${nombreDisplay}</td>
+                    <td class="px-4 py-3 font-bold text-slate-300">${row.grado || '-'}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-slate-400">${row.unidad || '-'}</td>
+                    <td class="px-4 py-3">
+                        <div class="text-xs text-slate-300 font-mono">${row.dni || '-'}</div>
+                        ${row.tel ? `<div class="text-[10px] text-slate-500 mt-0.5 flex items-center">
+                            <svg class="w-2.5 h-2.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.94.725l.548 2.2a1 1 0 01-.321.988l-1.305.98a10.582 10.582 0 004.872 4.872l.98-1.305a1 1 0 01.988-.321l2.2.548a1 1 0 01.725.94V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                            ${row.tel}
+                         </div>` : ''}
+                    </td>
+                    <td class="px-4 py-3 text-xs whitespace-nowrap">
+                        ${row.ingreso ? `<div><span class="text-slate-500 text-[10px] uppercase">Ing:</span> <span class="font-mono text-slate-300">${row.ingreso}</span></div>` : ''}
+                        ${row.egreso ? `<div class="mt-0.5"><span class="text-slate-500 text-[10px] uppercase">Egr:</span> <span class="font-mono text-slate-300">${row.egreso}</span></div>` : ''}
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex flex-col items-end space-y-1">
+                            ${statusBadge}
+                            ${row.observaciones ? `<div class="text-[10px] text-slate-400 italic max-w-[150px] truncate" title="${row.observaciones}">${row.observaciones}</div>` : ''}
+                        </div>
+                    </td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        function exportFilteredDataToCSV() {
+            if (appState.filteredData.length === 0) return;
+
+            const headers = ["Casa", "Sector", "Habitaciones", "Morador", "Grado", "Unidad", "DNI", "Teléfono", "Ingreso", "Egreso", "Estado Contrato", "Observaciones"];
+            const rows = appState.filteredData.map(r => [
+                r.casa,
+                r.sector,
+                r.habitaciones,
+                r.nombre,
+                r.grado,
+                r.unidad,
+                r.dni,
+                r.tel,
+                r.ingreso,
+                r.egreso,
+                r.calculatedStatus,
+                r.observaciones
+            ]);
+
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+            csvContent += [headers.join(","), ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(","))].join("\n");
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Reporte_Moradores_Filtrado_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
